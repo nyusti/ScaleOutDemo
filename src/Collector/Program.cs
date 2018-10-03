@@ -1,11 +1,10 @@
 ﻿namespace Collector
 {
     using System;
-    using System.Diagnostics;
-    using System.Reflection;
     using System.Threading;
     using System.Threading.Tasks;
     using Collector.Configuration;
+    using Collector.Services;
     using Unity;
 
     /// <summary>
@@ -14,12 +13,13 @@
     public class Program
     {
         private static IUnityContainer container = UnityConfiguration.Container;
-        private static int processCount = 0;
 
         private static async Task Main(string[] args)
         {
+            // should subscribe to some cancel event like keystroke
             var cancellationTokenSource = new CancellationTokenSource();
 
+            // parse command line arguments
             var app = new Microsoft.Extensions.CommandLineUtils.CommandLineApplication();
             var workerOption = app.Option("--worker", "Run the process as worker", Microsoft.Extensions.CommandLineUtils.CommandOptionType.NoValue); app.HelpOption("--help");
             app.ShowHelp();
@@ -27,38 +27,17 @@
 
             if (workerOption.HasValue())
             {
+                // if command line argument --worker has been set, we should only process the request until there are somethong to process
                 Console.WriteLine("Executed as worker");
-                var workerService = container.Resolve<IWorkerService>();
+                var workerService = container.Resolve<IWorkerService>("Worker");
                 await workerService.ProcessAsync(cancellationTokenSource.Token);
-                Environment.Exit(0);
+                // terminate the process when we are finished
+                return;
             }
-            else
-            {
-                var client = container.Resolve<IAutoScaleProducerClient>();
 
-                do
-                {
-                    var waitTime = await client.GetWaitTimeAsync(cancellationTokenSource.Token);
-
-                    if (waitTime != null)
-                    {
-                        if (processCount < ConfigurationReader.Instance.Settings.MaxDegreeOfParallelism)
-                        {
-                            var workerProcess = Process.Start("dotnet", $"exec {Assembly.GetExecutingAssembly().Location} --worker");
-                            Interlocked.Increment(ref processCount);
-                            workerProcess.Exited += (s, o) => Interlocked.Decrement(ref processCount);
-                        }
-
-                        Console.WriteLine($"Host working for {waitTime}");
-                        await Task.Delay(waitTime.Value, cancellationTokenSource.Token);
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Host waiting for {ConfigurationReader.Instance.Settings.PollingTimeout}");
-                        await Task.Delay(ConfigurationReader.Instance.Settings.PollingTimeout, cancellationTokenSource.Token);
-                    }
-                } while (!cancellationTokenSource.IsCancellationRequested);
-            }
+            Console.WriteLine("Executed as host");
+            var host = container.Resolve<IWorkerService>("Host");
+            await host.ProcessAsync(cancellationTokenSource.Token);
         }
     }
 }
