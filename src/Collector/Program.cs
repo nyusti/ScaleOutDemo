@@ -35,7 +35,6 @@
             else
             {
                 var client = container.Resolve<IAutoScaleProducerClient>();
-                var semaphore = new SemaphoreSlim(0, ConfigurationReader.Instance.Settings.MaxDegreeOfParallelism);
 
                 do
                 {
